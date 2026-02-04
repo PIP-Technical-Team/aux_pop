@@ -1,16 +1,23 @@
 
+// Date: 4 February 2026
+cd "C:\Users\wb537472\OneDrive - WBG\Global Poverty and Inequality Data Team - WB Group - March 2026\Data\_aux\pop\aux_pop"
 
-
-// Date: 6 August 2025
-cd "C:\Users\wb537472\OneDrive - WBG\Global Poverty and Inequality Data Team - WB Group - September 2025\Data\_aux\aux_pop"
-
-// Population data in PIP 
+// Population data currently in PIP 
 pip tables, table(pop) clear 
-tempfile pop 
-save `pop'
+rename value pop_old
+tempfile pop_old 
+save `pop_old'
 
-// Load data
-import excel "pop.xlsx", sheet("Sheet1") cellrange(A2:BQ653) firstrow clear
+// Countries in PIP
+keep country_code 
+duplicates drop
+tempfile pip 
+save `pip'
+
+
+// Rural 
+import excel "C:\Users\wb537472\OneDrive - WBG\Documents\Projects\PIP Update\2026_03\Data\Population 1960-2050 total, urban, rural from DCS 2026.1.22.xlsx",  /// 
+sheet("SP.RUR.TOTL") cellrange(A2:CR255) firstrow clear
 rename A country_code 
 rename B country_name 
 rename C series_code 
@@ -18,28 +25,13 @@ rename D series_name
 drop in 1 
 drop Time 
 drop if country_code==""
-reshape long YR, i(country_code series_code) j(year)
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-rename YR pop 
-merge 1:1 country_code year data_level using `pop'
+gen data_level = "rural" if series_name=="Rural population"
+tempfile rur 
+save `rur'
 
-sum year if _merge==1 
-sum year if _merge==2
-br if _merge==2 
-
-gen double d_pop = abs(pop-value)
-sum d_pop
-gsort - d_pop
-br // these are the same data in PIP except that Greenland is different
-
-br if !missing(value) & missing(pop)
-// Update the data set "pop.xlsx"
-// Old
-
-
-import excel "pop.xlsx", sheet("Sheet1") cellrange(A2:BQ653) firstrow clear
+// Urban 
+import excel "C:\Users\wb537472\OneDrive - WBG\Documents\Projects\PIP Update\2026_03\Data\Population 1960-2050 total, urban, rural from DCS 2026.1.22.xlsx",  /// 
+sheet("SP.URB.TOTL") cellrange(A2:CR255) firstrow clear
 rename A country_code 
 rename B country_name 
 rename C series_code 
@@ -47,17 +39,13 @@ rename D series_name
 drop in 1 
 drop Time 
 drop if country_code==""
-reshape long YR, i(country_code series_code) j(year)
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-rename YR pop_old 
-tempfile old 
-save `old'
+gen data_level = "urban" if series_name=="Urban population"
+tempfile urb
+save `urb'
 
-// New
-import excel "Pop estimates and projections from DCS as of 2025.8.5.xlsx", ///
-	sheet("Sheet1") cellrange(A2:DB759)  firstrow clear
+// Total
+import excel "C:\Users\wb537472\OneDrive - WBG\Documents\Projects\PIP Update\2026_03\Data\Population 1960-2050 total, urban, rural from DCS 2026.1.22.xlsx",  /// 
+sheet("SP.POP.TOTL") cellrange(A2:CR255) firstrow clear
 rename A country_code 
 rename B country_name 
 rename C series_code 
@@ -65,73 +53,146 @@ rename D series_name
 drop in 1 
 drop Time 
 drop if country_code==""
-reshape long YR, i(country_code series_code) j(year)
 gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-rename YR pop_new 
-merge 1:1 country_code year data_level using `old'
-keep if inlist(_merge,1,3) 
-sum if _merge==3
 
-br if missing(pop_new) & !missing(pop_old)
-br if country_code=="PSE"
-replace pop_new = pop_old if missing(pop_new) & !missing(pop_old) 
-br if country_code=="PSE"
-gen double d_pop_abs = abs(pop_new - pop_old)
-gen double d_pop = (pop_new - pop_old)
-gsort -d_pop_abs 
+// Combine data 
+append using `rur'
+append using `urb' 
+
+// Reshape data 
+reshape long YR, i(country_code series_code data_level) j(year)
+sort country_code year data_level 
+rename YR pop_new
+
+bysort country_code year data_level : gen j = _N 
+tab j
+
+// Combine old and new population data
+merge 1:1 country_code year data_level using `pop_old'
+keep if _merge==3 | _merge==1
+drop _merge 
+egen id = group(country_code)
+sum id 
+// assert `r(max)'==218 
+drop id j series_name series_code
+order country_name country_code year data_level pop_old pop_new 
+compress 
+
+// Compare old and new population data
+gen double pop_diff = pop_new - pop_old  
+
+br if data_level=="national" & pop_diff!=0 
+br if data_level=="national" & pop_diff!=0 ///
+	& !missing(pop_new) & missing(pop_old)
+
+br if data_level=="national" & pop_diff!=0 ///
+	& missing(pop_new) & !missing(pop_old)
+	
+
+// Compare rural and urban population shares 	
+preserve 
+
+bysort country_code year: gen double pop_old_tot_ = pop_old  ///
+	if data_level=="national"
+egen pop_old_tot = mean(pop_old_tot_),by(country_code year)
+drop pop_old_tot_	
+	
+gen double rur_shr_old = pop_old/pop_old_tot if data_level=="rural"
+gen double urb_shr_old = pop_old/pop_old_tot if data_level=="urban"
+
+bysort country_code year: gen double pop_new_tot_ = pop_new  ///
+	if data_level=="national"
+egen pop_new_tot = mean(pop_new_tot_),by(country_code year)
+drop pop_new_tot_	
+	
+gen double rur_shr_new = pop_new/pop_new_tot if data_level=="rural"
+gen double urb_shr_new = pop_new/pop_new_tot if data_level=="urban"
+
+collapse rur_shr_old  rur_shr_new urb_shr_old urb_shr_new,by( country_code country_name year)
+
+scatter rur_shr_new rur_shr_old if year==2025, ///
+ mlab(country_code) mstyle(none) mlabpos(0) ///
+  || function y=x, ra(rur_shr_old) legend(off) ///
+  ytitle("Rural share - NEW") xtitle("Rural share - OLD") ///
+  xsize(8) ysize(8)
+
+restore 
+
+
+// Check the rate of change in national poverty rates 
+preserve 
+keep if data_level=="national"
+gen double pop_rel = 100*(pop_new - pop_old)/pop_old
+gsort - pop_rel 
 br 
+ /* Up to 4% increase in population (Kosovo, 2025) or 12% decrease in population (Albania, 2025) */ 
+restore 
 
-br if country_code=="IND"
-br if country_code=="CHN"
-br if country_code=="NGA"
-br if country_code=="USA"
+
+// Create final poverty rates for PIP 
+replace pop_new = pop_old if missing(pop_new) & !missing(pop_old)
+sum pop_new pop_old 
+drop pop_old pop_diff 
+rename pop_new YR 
+
+// Reshape data 
+reshape wide YR, i(country_code country_name data_level) j(year)
+
+gen series_name = "Population, total" if data_level=="national"
+replace series_name = "Rural population" if data_level=="rural"
+replace series_name = "Urban population" if data_level=="urban"
+
+sort country_code series_name 
+
+gen series_code = "SP.POP.TOTL" if data_level=="national"
+replace series_code = "SP.RUR.TOTL" if data_level=="rural"
+replace series_code = "SP.URB.TOTL" if data_level=="urban"
+
+drop data_level 
+gen Scale = 0
+
+// Keep only countries in PIP 
+merge m:1 country_code using `pip', nogen keep(match)
+
+
+rename country_code Country 
+rename country_name Country_Name
+rename series_code Series 
+rename series_name Series_Name 
+order Country Country_Name Series Series_Name Scale
+
+egen count = rownonmiss(YR*)
+drop count 
+
+// Get all data organized as in PIP 
+preserve 
+reshape long YR, i(Country Country_Name Series Series_Name) j(year)
+rename Country country_code 
+rename Country_Name country_name 
+rename YR pop 
+gen data_level = "national" if Series=="SP.POP.TOTL"
+replace data_level = "urban" if Series=="SP.URB.TOTL"
+replace data_level = "rural" if Series=="SP.RUR.TOTL"
+
+keep country_code country_name pop year data_level
+order country_code country_name  data_level year pop 
+sort country_code year data_level
+compress 
+save "Data/pop_all_202601.dta", replace
+restore 
+
+
+// Save data
+* export excel using "pop.xlsx", sheet("Sheet2") cell(A3) firstrow(variables) sheetreplace
+
+// copy over from Sheet2 to "pop.xlsx", sheet("Sheet1")  //
+
+// copy over from Sheet2 to "spop.csv", sheet("spop")  //
 
 /*
-gen lpop_old = ln(pop_old)
-gen lpop_new = ln(pop_new)
-
-
-preserve 
-scatter lpop_new lpop_old, mlab(country_code) || function y =x, ra(lpop_old)
-replace country_code="" if !(inlist(country_code,"IND","PAK"))
-scatter lpop_new lpop_old, mlab(country_code) || function y =x, ra(lpop_old)
-restore 
-*/
-
-br if !missing(pop_new) & missing(pop_old) & _merge==3
-keep if _merge==3 | year==2024
-rename pop_new YR
-keep country_code country_name series_code series_name YR year
-reshape wide YR, i(country_code series_code) j(year)
-order country_code country_name series_code series_name
-sort country_code series_code 
-
-br if country_code=="PSE"
-
-// Keep only 218 economies in WDI
-egen row =  rowmiss(YR*)
-drop if row == 64 | row==65
-egen id = group(country_code)
-sum id 
-assert `r(max)'==218
-drop id row
-
-// Save data
-export excel using "pop.xlsx", sheet("Sheet2") sheetreplace firstrow(variables)
-
-///////// Compare latest population data to that in PIP ////////////
-
-// Population data in PIP 
-pip tables, table(pop) clear
-rename value pop_old 
-sum 
-tempfile pop 
-save `pop'
-
-import excel "Pop estimates and projections from DCS as of 2025.8.5.xlsx", ///
-	sheet("Sheet1") cellrange(A2:DB759)  firstrow clear
+/* Check */ 
+// Load data
+import excel "pop.xlsx", sheet("Sheet1") cellrange(A2:BR653) firstrow clear
 rename A country_code 
 rename B country_name 
 rename C series_code 
@@ -140,202 +201,26 @@ drop in 1
 drop Time 
 drop if country_code==""
 reshape long YR, i(country_code series_code) j(year)
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-rename YR pop_new 
-merge 1:1 country_code year data_level using `pop'
-
-sum year if _merge==1 
-sum year if _merge==2
-br if _merge==2 
-
-
-gen double d_pop = (pop_new - pop_old)
-gen double d_pop_abs = abs(pop_new - pop_old)
-gsort -d_pop_abs
-br 
-
-keep if year>1976
-drop if year>2025 
-
-count if missing(pop_new) & !missing(pop_old)
-br if missing(pop_new) & !missing(pop_old)
-br if country_code=="PSE"
-br if country_code=="GRL"
-br if country_code=="GHA"
-sort country_code year data_level 
-
-
-/// Update projections
-
-// Old 
-import excel "spop.xlsx", sheet("spop") cellrange(A2:DB653) firstrow clear
-rename A country_code 
-rename B country_name 
-rename C series_code 
-rename D series_name 
-drop in 1 
-drop Time 
-drop if country_code==""
-
-
-reshape long YR, i(country_code series_code) j(year) 
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" | series_name=="Urban Population"
 rename YR pop_old 
 tempfile old 
 save `old'
 
-br if country_code=="AIA"
 
-// New
-import excel "Pop estimates and projections from DCS as of 2025.8.5.xlsx", ///
-	sheet("Sheet1") cellrange(A2:DB759)  firstrow clear
-rename A country_code 
-rename B country_name 
-rename C series_code 
-rename D series_name 
-drop in 1 
-drop Time 
+
+import excel "pop.xlsx", sheet("Sheet2") cellrange(A3:BR657) firstrow clear
+rename Country country_code 
+rename Country_Name country_name 
+rename Series series_code 
+rename Series_Name series_name 
+
 drop if country_code==""
 reshape long YR, i(country_code series_code) j(year)
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
 rename YR pop_new 
-br if country_code=="IND"
-merge 1:1 country_code year data_level using `old', gen(merge)
-// merge 1:1 country_code year data_level using `IND', gen(merge_IND)
-
-br if country_code=="TWN" | country_code=="GRL"
-br if missing(pop_old)
-replace pop_new = pop_old if missing(pop_old) ///
-  & !(country_code=="TWN" | country_code=="GRL")
- replace pop_new = pop_old if missing(pop_new) ///
-	& !missing(pop_old) & country_code=="GRL"
-replace pop_new = pop_old if country_code=="PSE" & year<1990
-// replace pop_new = pop_old if country_code=="GRL"
-keep if inrange(year,1950,2050) & merge==3
-gen double d_pop_abs = abs(pop_new - pop_old)
-gen double d_pop = (pop_new - pop_old)
-gsort -d_pop_abs 
-br
-br if country_code=="GHA" & inlist(year,2023,2024,2025)
-rename pop_new YR
-replace YR = . if year<2024 
 
 
+merge 1:1 country_code series_code year using `old'
 
-keep country_code country_name series_code series_name YR year
-reshape wide YR, i(country_code series_code) j(year)
-order country_code country_name series_code series_name
-sort country_code series_code 
+br if _merge==1
 
-// Keep only 218 economies in WDI
-egen row =  rowmiss(YR*)
-drop if row == 100 | row==101
-egen id = group(country_code)
-sum id 
-assert `r(max)'==218
-drop id row
-
-// Save data
-export excel using "spop.xlsx", sheet("spop1") sheetreplace firstrow(variables)
-
-
-
-// Check the values for 2024 
-import excel using "spop.xlsx", sheet("spop1") firstrow clear 
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-reshape long YR, i(country_code series_code) j(year)
-keep if year==2024 
-rename YR pop1 
-keep country_code country_name pop1 data_level year
-tempfile pop 
-save `pop'
-
-
-
-import excel using "pop.xlsx", sheet("Sheet2") firstrow clear
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-reshape long YR, i(country_code series_code) j(year)
-keep if year==2024 
-rename YR pop2 
-keep country_code country_name pop2 data_level year
-
-merge 1:1 country_code year data_level using `pop'
-
-
-gen double d_pop_abs = abs(pop1 - pop2)
-gsort -d_pop_abs 
-br
-
-
-// Checks with original data set 
-import excel using "pop.xlsx", sheet("Sheet1") firstrow clear cellrange(A2:BR653) 
-
-rename A country_code 
-rename B country_name 
-rename C series_code 
-rename D series_name 
-drop in 1 
-drop Time 
-drop if country_code==""
-
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-reshape long YR, i(country_code series_code) j(year)
-rename YR pop_own
-tempfile df 
-save `df'
-
- 
-import excel "spop.xlsx", sheet("spop1") cellrange(A1:DA645) firstrow clear
-reshape long YR, i(country_code series_code) j(year) 
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" | series_name=="Urban Population"
-drop if missing(YR)
-rename YR pop_own  
-append using `df'
-drop series_name series_code
-duplicates drop
-isid country_code year data_level 
-
-tempfile own 
-save `own'
-
-// New
-import excel "Pop estimates and projections from DCS as of 2025.8.5.xlsx", ///
-	sheet("Sheet1") cellrange(A2:DB759)  firstrow clear
-rename A country_code 
-rename B country_name 
-rename C series_code 
-rename D series_name 
-drop in 1 
-drop Time 
-drop if country_code==""
-reshape long YR, i(country_code series_code) j(year)
-gen data_level = "national" if series_name=="Population, total"
-replace data_level = "rural" if series_name=="Rural population"
-replace data_level = "urban" if series_name=="Urban population" 
-rename YR pop_target  
-drop series_code series_name
-isid country_code year data_level 
-
-merge 1:1 country_code year data_level using `own'  
-
-gen double d_pop = abs(pop_target - pop_own)
-gsort - d_pop
-br 
-
- 
-
+*/
 
