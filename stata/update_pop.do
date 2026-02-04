@@ -129,7 +129,7 @@ br
 restore 
 
 
-// Create final poverty rates for PIP 
+// Create final population data for PIP 
 replace pop_new = pop_old if missing(pop_new) & !missing(pop_old)
 sum pop_new pop_old 
 drop pop_old pop_diff 
