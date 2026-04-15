@@ -193,7 +193,7 @@ restore
 
 
 // Save data
-export excel using "pop.xlsx", sheet("Sheet2") cell(A3) firstrow(variables) sheetreplace
+* export excel using "pop.xlsx", sheet("Sheet2") cell(A3) firstrow(variables) sheetreplace
 
 // copy over from Sheet2 to "pop.xlsx", sheet("Sheet1")  //
 
