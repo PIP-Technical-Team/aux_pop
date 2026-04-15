@@ -7,7 +7,7 @@ clear all
 set more off
 
 if (lower("`c(username)'") == "wb537472") {
-	global dir "C:\Users\wb537472\OneDrive - WBG\Global Poverty and Inequality Data Team - WB Group - March 2026\Data\_aux\pop\aux_pop" 
+	global dir "C:\Users\wb537472\OneDrive - WBG\Global Poverty and Inequality Data Team - WB Group - March 2026\Data\_aux\aux_pop" 
 	}
 
 else if (lower("`c(username)'") == "") {    // Path for Jonas
